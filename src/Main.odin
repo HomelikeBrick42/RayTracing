@@ -116,8 +116,18 @@ main :: proc() {
 				reflectiveness = 0.0,
 				scatter = 1.0,
 			},
-			position = {0.0, 1.0, 0.0},
+			position = {-1.1, 1.0, 0.0},
 			radius = 1.0,
+		},
+		Sphere{
+			material = Material{
+				color = {0.0, 0.0, 0.0},
+				emission_color = glsl.dvec3{0.8, 0.4, 0.2} * 2.0,
+				reflectiveness = 0.0,
+				scatter = 0.0,
+			},
+			position = {0.5, 0.5, -0.75},
+			radius = 0.5,
 		},
 	}
 

@@ -134,46 +134,39 @@ main :: proc() {
 		},
 	}
 
-	thread_count: int = 8
+	thread_count: u64 = 8
 	when ODIN_OS == .Windows {
 		system_info: windows.SYSTEM_INFO
 		windows.GetSystemInfo(&system_info)
-		thread_count = int(system_info.dwNumberOfProcessors)
+		thread_count = u64(system_info.dwNumberOfProcessors)
 	}
-    fmt.printf("Using %d threads\n", thread_count)
+	fmt.printf("Using %d threads\n", thread_count)
 	assert(Height % thread_count == 0)
 
 	@(static)
 	quit := false
 
-	start_barrier: sync.Barrier
-	end_barrier: sync.Barrier
-	sync.barrier_init(&start_barrier, thread_count + 1)
-	sync.barrier_init(&end_barrier, thread_count + 1)
-
 	RenderData :: struct {
-		start_barrier: ^sync.Barrier,
-		end_barrier:   ^sync.Barrier,
-		camera:        ^Camera,
-		objects:       []Object,
-		pixels:        []glsl.vec3,
-		y_start:       int,
-		y_end:         int,
-		seed:          u64,
+		camera:   ^Camera,
+		objects:  []Object,
+		pixels:   []glsl.vec3,
+		y_start:  int,
+		y_end:    int,
+		seed:     u64,
+		finished: bool,
 	}
 
 	render_threads := make([]^thread.Thread, thread_count)
 	render_datas := make([]RenderData, thread_count)
 	for i in 0 .. thread_count - 1 {
 		render_datas[i] = RenderData {
-			start_barrier = &start_barrier,
-			end_barrier   = &end_barrier,
-			camera        = &camera,
-			objects       = objects[:],
-			pixels        = pixels[:],
-			y_start       = (i + 0) * (Height / thread_count),
-			y_end         = (i + 1) * (Height / thread_count),
-			seed          = rand.uint64(),
+			camera   = &camera,
+			objects  = objects[:],
+			pixels   = pixels[:],
+			y_start  = int((i + 0) * (Height / thread_count)),
+			y_end    = int((i + 1) * (Height / thread_count)),
+			seed     = rand.uint64(),
+			finished = false,
 		}
 		render_threads[i] = thread.create_and_start_with_data(
 			&render_datas[i],
@@ -181,42 +174,52 @@ main :: proc() {
 				using data := cast(^RenderData)data
 				r := rand.create(seed)
 				for !sync.atomic_load(&quit) {
-					sync.barrier_wait(start_barrier)
-					if sync.atomic_load(&quit) {
-						return
-					}
+					if sync.atomic_load(&finished) do continue
 					Draw(camera, objects, y_start, y_end, pixels, &r)
-					sync.barrier_wait(end_barrier)
+					sync.atomic_store(&finished, true)
 				}
 			},
 		)
 	}
 
 	samples: u32 = 0
-	last_time := glfw.GetTime()
+	last_sample_time := glfw.GetTime()
+	seconds_per_sample := 0.0
 	glfw.ShowWindow(window)
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 
-		time := glfw.GetTime()
-		delta := time - last_time
-		defer last_time = time
+		all_finished := true
+		for render_data in &render_datas {
+			if !sync.atomic_load(&render_data.finished) {
+				all_finished = false
+				break
+			}
+		}
+		if all_finished {
+			time := glfw.GetTime()
+			seconds_per_sample = time - last_sample_time
+			last_sample_time = time
 
-		sync.barrier_wait(&start_barrier)
-		sync.barrier_wait(&end_barrier)
-
-		samples += 1
-		gl.ProgramUniform1ui(shader, gl.GetUniformLocation(shader, "u_Samples"), samples)
-		gl.TextureSubImage2D(texture, 0, 0, 0, Width, Height, gl.RGB, gl.FLOAT, &pixels[0][0])
+			samples += 1
+			gl.ProgramUniform1ui(shader, gl.GetUniformLocation(shader, "u_Samples"), samples)
+			gl.TextureSubImage2D(texture, 0, 0, 0, Width, Height, gl.RGB, gl.FLOAT, &pixels[0][0])
+			for render_data in &render_datas {
+				sync.atomic_store(&render_data.finished, false)
+			}
+		}
 		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 		glfw.SwapBuffers(window)
 
-		fmt.printf("FPS: %.3f, Samples: %i                \r", 1.0 / delta, samples)
+		fmt.printf(
+			"Samples: %i, Samples Per Second: %.3f                \r",
+			samples,
+			1.0 / seconds_per_sample,
+		)
 	}
 	glfw.HideWindow(window)
 
 	sync.atomic_store(&quit, true)
-	sync.barrier_wait(&start_barrier)
 	for render_thread in render_threads {
 		thread.join(render_thread)
 	}

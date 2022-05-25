@@ -55,15 +55,29 @@ Object_GetReflectiveness :: #force_inline proc(object: Object) -> f64 {
 	}
 }
 
+Object_GetScatter :: #force_inline proc(object: Object) -> f64 {
+	switch o in object {
+	case Sphere:
+		return o.scatter
+	case Plane:
+		return o.scatter
+	case:
+		return 0.0
+	}
+}
+
 Sphere :: struct {
 	color:          glsl.dvec3,
 	reflectiveness: f64,
+	scatter:        f64,
 	position:       glsl.dvec3,
 	radius:         f64,
 }
 
 Plane :: struct {
 	color:          glsl.dvec3,
+	attenuation:    f64,
+	scatter:        f64,
 	reflectiveness: f64,
 	y_position:     f64,
 }
@@ -110,10 +124,11 @@ main :: proc() {
 	}
 
 	objects := [?]Object{
-		Plane{color = {0.2, 0.8, 0.3}, reflectiveness = 0.0, y_position = 0.0},
+		Plane{color = {0.2, 0.8, 0.3}, reflectiveness = 0.0, scatter = 1.0, y_position = 0.0},
 		Sphere{
 			color = {0.1, 0.3, 0.8},
 			reflectiveness = 0.0,
+			scatter = 1.0,
 			position = {0.0, 1.0, 0.0},
 			radius = 1.0,
 		},
@@ -263,6 +278,7 @@ RayMarch :: proc(
 
 			color := Object_GetColor(object^)
 			reflectiveness := Object_GetReflectiveness(object^)
+			scatter := Object_GetScatter(object^)
 
 			return glsl.lerp(
 				color,
@@ -272,9 +288,9 @@ RayMarch :: proc(
 				Ray{
 					origin = point + normal * MinDistance,
 					direction = glsl.lerp(
+						glsl.reflect(ray.direction, normal),
 						glsl.normalize(RandomInHemisphere(normal, r)),
-						normal,
-						reflectiveness,
+						scatter,
 					),
 				},
 				objects,

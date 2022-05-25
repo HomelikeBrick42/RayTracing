@@ -6,7 +6,7 @@
         {
             "label": "Build",
             "type": "shell",
-            "command": "odin build src -out:RayTracer.exe -debug",
+            "command": "odin build src -out:RayTracer.exe -o:speed",
             "problemMatcher": [],
             "group": {
                 "kind": "build",

@@ -31,53 +31,33 @@ Object :: union {
 	Plane,
 }
 
-Object_GetColor :: #force_inline proc(object: Object) -> glsl.dvec3 {
-	switch o in object {
-	case Sphere:
-		return o.color
-	case Plane:
-		return o.color
-	case:
-		return {0.0, 0.0, 0.0}
-	}
+Material :: struct {
+	color:          glsl.dvec3,
+	emission_color: glsl.dvec3,
+	reflectiveness: f64,
+	scatter:        f64,
 }
 
-Object_GetReflectiveness :: #force_inline proc(object: Object) -> f64 {
+Object_GetMaterial :: #force_inline proc(object: Object) -> Material {
 	switch o in object {
 	case Sphere:
-		return o.reflectiveness
+		return o.material
 	case Plane:
-		return o.reflectiveness
+		return o.material
 	case:
-		return 0.0
-	}
-}
-
-Object_GetScatter :: #force_inline proc(object: Object) -> f64 {
-	switch o in object {
-	case Sphere:
-		return o.scatter
-	case Plane:
-		return o.scatter
-	case:
-		return 0.0
+		return {}
 	}
 }
 
 Sphere :: struct {
-	color:          glsl.dvec3,
-	reflectiveness: f64,
-	scatter:        f64,
-	position:       glsl.dvec3,
-	radius:         f64,
+	material: Material,
+	position: glsl.dvec3,
+	radius:   f64,
 }
 
 Plane :: struct {
-	color:          glsl.dvec3,
-	attenuation:    f64,
-	scatter:        f64,
-	reflectiveness: f64,
-	y_position:     f64,
+	material:   Material,
+	y_position: f64,
 }
 
 Draw :: proc(
@@ -154,11 +134,22 @@ main :: proc() {
 	}
 
 	objects := [?]Object{
-		Plane{color = {0.2, 0.8, 0.3}, reflectiveness = 0.0, scatter = 1.0, y_position = 0.0},
+		Plane{
+			material = Material{
+				color = {0.2, 0.8, 0.3},
+				emission_color = {0.0, 0.0, 0.0},
+				reflectiveness = 0.0,
+				scatter = 1.0,
+			},
+			y_position = 0.0,
+		},
 		Sphere{
-			color = {0.1, 0.3, 0.8},
-			reflectiveness = 0.0,
-			scatter = 1.0,
+			material = Material{
+				color = {0.1, 0.3, 0.8},
+				emission_color = {0.0, 0.0, 0.0},
+				reflectiveness = 0.0,
+				scatter = 1.0,
+			},
 			position = {0.0, 1.0, 0.0},
 			radius = 1.0,
 		},

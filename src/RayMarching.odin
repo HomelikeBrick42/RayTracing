@@ -74,27 +74,25 @@ RayMarch :: proc(
 			_, object := GetClosestObject(point, objects)
 			assert(object != nil)
 
-			color := Object_GetColor(object^)
-			reflectiveness := Object_GetReflectiveness(object^)
-			scatter := Object_GetScatter(object^)
+			material := Object_GetMaterial(object^)
 
 			return glsl.lerp(
-				color,
+				material.color,
 				1.0,
-				reflectiveness,
+				material.reflectiveness,
 			) * RayMarch(
 				Ray{
 					origin = point + normal * MinDistance,
 					direction = glsl.lerp(
 						glsl.reflect(ray.direction, normal),
 						glsl.normalize(RandomInHemisphere(normal, r)),
-						scatter,
+						material.scatter,
 					),
 				},
 				objects,
 				r,
 				depth + 1,
-			)
+			) + material.emission_color
 		}
 	}
 

@@ -26,40 +26,6 @@ Ray :: struct {
 	direction: glsl.dvec3,
 }
 
-Object :: union {
-	Sphere,
-	Plane,
-}
-
-Material :: struct {
-	color:          glsl.dvec3,
-	emission_color: glsl.dvec3,
-	reflectiveness: f64,
-	scatter:        f64,
-}
-
-Object_GetMaterial :: #force_inline proc(object: Object) -> Material {
-	switch o in object {
-	case Sphere:
-		return o.material
-	case Plane:
-		return o.material
-	case:
-		return {}
-	}
-}
-
-Sphere :: struct {
-	material: Material,
-	position: glsl.dvec3,
-	radius:   f64,
-}
-
-Plane :: struct {
-	material:   Material,
-	y_position: f64,
-}
-
 Draw :: proc(
 	camera: ^Camera,
 	objects: []Object,
@@ -174,6 +140,7 @@ main :: proc() {
 		pixels:        []glsl.vec3,
 		y_start:       int,
 		y_end:         int,
+		seed:          u64,
 	}
 
 	render_threads: [ThreadCount]^thread.Thread
@@ -187,12 +154,13 @@ main :: proc() {
 			pixels        = pixels[:],
 			y_start       = (i + 0) * (Height / ThreadCount),
 			y_end         = (i + 1) * (Height / ThreadCount),
+			seed          = rand.uint64(),
 		}
 		render_threads[i] = thread.create_and_start_with_data(
 			&render_datas[i],
 			proc(data: rawptr) {
 				using data := cast(^RenderData)data
-				r := rand.create(0) // TODO: generate different seed for each thread
+				r := rand.create(seed)
 				for !sync.atomic_load(&quit) {
 					sync.barrier_wait(start_barrier)
 					if sync.atomic_load(&quit) {

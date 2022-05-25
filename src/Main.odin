@@ -1,12 +1,7 @@
 package main
 
-import "core:c"
-import "core:os"
-import "core:fmt"
 import "core:thread"
 import "core:sync"
-import "core:intrinsics"
-import "core:math"
 import "core:math/linalg/glsl"
 import "core:math/rand"
 
@@ -82,6 +77,37 @@ Plane :: struct {
 	y_position:     f64,
 }
 
+Draw :: proc(
+	camera: ^Camera,
+	objects: []Object,
+	y_start: int,
+	y_end: int,
+	pixels: []glsl.vec3,
+	r: ^rand.Rand,
+) {
+	for y in y_start .. y_end - 1 {
+		for x in 0 .. Width - 1 {
+			uv := glsl.dvec2{f64(x) / f64(Width), f64(y) / f64(Height)} * 2.0 - 1.0
+			when Width > Height {
+				uv.x *= f64(Width) / f64(Height)
+			} else {
+				uv.y *= f64(Height) / f64(Width)
+			}
+			uv += RandomDirectionInUnitCircle(r) / {f64(Width), f64(Height)}
+
+			ray := Ray {
+				origin    = camera.position,
+				direction = glsl.normalize_dvec3(
+					camera.forward + camera.right * uv.x + camera.up * uv.y,
+				),
+			}
+
+			color := RayMarch(ray, objects[:], r)
+			pixels[x + y * Width] += {cast(f32)color.r, cast(f32)color.g, cast(f32)color.b}
+		}
+	}
+}
+
 main :: proc() {
 	glfw.Init()
 	defer glfw.Terminate()
@@ -134,171 +160,75 @@ main :: proc() {
 		},
 	}
 
-	r := rand.create(0)
+	ThreadCount :: 12
+	#assert(Height % ThreadCount == 0)
+
+	@(static)
+	quit := false
+
+	start_barrier: sync.Barrier
+	end_barrier: sync.Barrier
+	sync.barrier_init(&start_barrier, ThreadCount + 1)
+	sync.barrier_init(&end_barrier, ThreadCount + 1)
+
+	RenderData :: struct {
+		start_barrier: ^sync.Barrier,
+		end_barrier:   ^sync.Barrier,
+		camera:        ^Camera,
+		objects:       []Object,
+		pixels:        []glsl.vec3,
+		y_start:       int,
+		y_end:         int,
+	}
+
+	render_threads: [ThreadCount]^thread.Thread
+	render_datas: [ThreadCount]RenderData
+	for i in 0 .. ThreadCount - 1 {
+		render_datas[i] = RenderData {
+			start_barrier = &start_barrier,
+			end_barrier   = &end_barrier,
+			camera        = &camera,
+			objects       = objects[:],
+			pixels        = pixels[:],
+			y_start       = (i + 0) * (Height / ThreadCount),
+			y_end         = (i + 1) * (Height / ThreadCount),
+		}
+		render_threads[i] = thread.create_and_start_with_data(
+			&render_datas[i],
+			proc(data: rawptr) {
+				using data := cast(^RenderData)data
+				r := rand.create(0) // TODO: generate different seed for each thread
+				for !sync.atomic_load(&quit) {
+					sync.barrier_wait(start_barrier)
+					if sync.atomic_load(&quit) {
+						return
+					}
+					Draw(camera, objects, y_start, y_end, pixels, &r)
+					sync.barrier_wait(end_barrier)
+				}
+			},
+		)
+	}
 
 	samples: u32 = 0
-
 	glfw.ShowWindow(window)
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 
-		for y in 0 .. Height - 1 {
-			for x in 0 .. Width - 1 {
-				uv := glsl.dvec2{f64(x) / f64(Width), f64(y) / f64(Height)} * 2.0 - 1.0
-				when Width > Height {
-					uv.x *= f64(Width) / f64(Height)
-				} else {
-					uv.y *= f64(Height) / f64(Width)
-				}
-				uv += RandomDirectionInUnitCircle(&r) / {f64(Width), f64(Height)}
-
-				ray := Ray {
-					origin    = camera.position,
-					direction = glsl.normalize_dvec3(
-						camera.forward + camera.right * uv.x + camera.up * uv.y,
-					),
-				}
-
-				color := RayMarch(ray, objects[:], &r)
-				pixels[x + y * Width] += {cast(f32)color.r, cast(f32)color.g, cast(f32)color.b}
-			}
-		}
+		sync.barrier_wait(&start_barrier)
+		sync.barrier_wait(&end_barrier)
 
 		samples += 1
-
 		gl.ProgramUniform1ui(shader, gl.GetUniformLocation(shader, "u_Samples"), samples)
 		gl.TextureSubImage2D(texture, 0, 0, 0, Width, Height, gl.RGB, gl.FLOAT, &pixels[0][0])
 		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 		glfw.SwapBuffers(window)
 	}
 	glfw.HideWindow(window)
-}
 
-RandomDirectionInUnitCircle :: proc(r: ^rand.Rand) -> glsl.dvec2 {
-	for {
-		direction := glsl.dvec2{
-			rand.float64_range(-1.0, 1.0, r),
-			rand.float64_range(-1.0, 1.0, r),
-		}
-		if glsl.dot(direction, direction) > 1.0 do continue
-		return direction
+	sync.atomic_store(&quit, true)
+	sync.barrier_wait(&start_barrier)
+	for render_thread in render_threads {
+		thread.join(render_thread)
 	}
-}
-
-RandomDirectionInUnitSphere :: proc(r: ^rand.Rand) -> glsl.dvec3 {
-	for {
-		direction := glsl.dvec3{
-			rand.float64_range(-1.0, 1.0, r),
-			rand.float64_range(-1.0, 1.0, r),
-			rand.float64_range(-1.0, 1.0, r),
-		}
-		if glsl.dot(direction, direction) > 1.0 do continue
-		return direction
-	}
-}
-
-RandomInHemisphere :: proc(normal: glsl.dvec3, r: ^rand.Rand) -> glsl.dvec3 {
-	in_unit_sphere := RandomDirectionInUnitSphere(r)
-	if (glsl.dot(in_unit_sphere, normal) > 0.0) {
-		return in_unit_sphere
-	} else {
-		return -in_unit_sphere
-	}
-}
-
-RayMarch :: proc(
-	ray: Ray,
-	objects: []Object,
-	r: ^rand.Rand,
-	depth := uint(0),
-) -> glsl.dvec3 {
-	MaxDistance :: 1000.0
-	MinDistance :: 0.01
-	MaxBounces :: 500
-
-	GetDistance :: #force_inline proc(point: glsl.dvec3, object: Object) -> f64 {
-		switch o in object {
-		case Sphere:
-			return glsl.length_dvec3(point - o.position) - o.radius
-		case Plane:
-			return abs(point.y - o.y_position)
-		case:
-			return math.INF_F64
-		}
-	}
-
-	DE :: #force_inline proc(point: glsl.dvec3, objects: []Object) -> f64 {
-		distance := math.INF_F64
-		for object in objects {
-			distance = min(distance, GetDistance(point, object))
-		}
-		return distance
-	}
-
-	GetClosestObject :: #force_inline proc(point: glsl.dvec3, objects: []Object) -> (
-		distance: f64,
-		closest_object: ^Object,
-	) {
-		objects := objects
-
-		distance = math.INF_F64
-		for object in &objects {
-			new_distance := GetDistance(point, object)
-			if new_distance < distance {
-				distance = new_distance
-				closest_object = &object
-			}
-		}
-
-		return
-	}
-
-	if depth > MaxBounces do return {}
-
-	totalDistance := 0.0
-	for {
-		point := ray.origin + ray.direction * totalDistance
-		distance := DE(point, objects)
-		totalDistance += distance
-		if abs(totalDistance) > MaxDistance do break
-		if abs(distance) < MinDistance {
-			XDir :: glsl.dvec3{MinDistance, 0.0, 0.0}
-			YDir :: glsl.dvec3{0.0, MinDistance, 0.0}
-			ZDir :: glsl.dvec3{0.0, 0.0, MinDistance}
-			normal := glsl.normalize_dvec3(
-				{
-					DE(point + XDir, objects) - DE(point - XDir, objects),
-					DE(point + YDir, objects) - DE(point - YDir, objects),
-					DE(point + ZDir, objects) - DE(point - ZDir, objects),
-				},
-			)
-
-			_, object := GetClosestObject(point, objects)
-			assert(object != nil)
-
-			color := Object_GetColor(object^)
-			reflectiveness := Object_GetReflectiveness(object^)
-			scatter := Object_GetScatter(object^)
-
-			return glsl.lerp(
-				color,
-				1.0,
-				reflectiveness,
-			) * RayMarch(
-				Ray{
-					origin = point + normal * MinDistance,
-					direction = glsl.lerp(
-						glsl.reflect(ray.direction, normal),
-						glsl.normalize(RandomInHemisphere(normal, r)),
-						scatter,
-					),
-				},
-				objects,
-				r,
-				depth + 1,
-			)
-		}
-	}
-
-	return glsl.lerp_dvec3({1.0, 1.0, 1.0}, {0.5, 0.7, 1.0}, ray.direction.y * 0.5 + 0.5)
 }

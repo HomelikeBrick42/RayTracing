@@ -1,7 +1,9 @@
 package main
 
+import "core:fmt"
 import "core:thread"
 import "core:sync"
+import "core:math"
 import "core:math/linalg/glsl"
 import "core:math/rand"
 
@@ -10,6 +12,7 @@ import gl "vendor:opengl"
 
 Width :: 640
 Height :: 480
+FOV :: 45.0
 
 Camera :: struct {
 	position: glsl.dvec3,
@@ -94,6 +97,7 @@ Draw :: proc(
 				uv.y *= f64(Height) / f64(Width)
 			}
 			uv += RandomDirectionInUnitCircle(r) / {f64(Width), f64(Height)}
+			uv *= math.tan_f64(FOV * math.RAD_PER_DEG * 0.5) * 2.0
 
 			ray := Ray {
 				origin    = camera.position,
@@ -211,9 +215,14 @@ main :: proc() {
 	}
 
 	samples: u32 = 0
+	last_time := glfw.GetTime()
 	glfw.ShowWindow(window)
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
+
+		time := glfw.GetTime()
+		delta := time - last_time
+		defer last_time = time
 
 		sync.barrier_wait(&start_barrier)
 		sync.barrier_wait(&end_barrier)
@@ -223,6 +232,8 @@ main :: proc() {
 		gl.TextureSubImage2D(texture, 0, 0, 0, Width, Height, gl.RGB, gl.FLOAT, &pixels[0][0])
 		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 		glfw.SwapBuffers(window)
+
+		fmt.printf("FPS: %.3f, Samples: %i                \r", 1.0 / delta, samples)
 	}
 	glfw.HideWindow(window)
 

@@ -9,5 +9,5 @@ uniform uint u_Samples;
 
 void main() {
     float scale = 1.0 / float(u_Samples);
-    o_Color = vec4(sqrt(texture(u_Texture, v_UV).rgb * scale), 1.0);
+    o_Color = vec4(clamp(sqrt(texture(u_Texture, v_UV).rgb * scale), vec3(0.0), vec3(1.0)), 1.0);
 }

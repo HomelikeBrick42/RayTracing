@@ -44,15 +44,28 @@ Object_GetColor :: #force_inline proc(object: Object) -> glsl.dvec3 {
 	}
 }
 
+Object_GetReflectiveness :: #force_inline proc(object: Object) -> f64 {
+	switch o in object {
+	case Sphere:
+		return o.reflectiveness
+	case Plane:
+		return o.reflectiveness
+	case:
+		return 0.0
+	}
+}
+
 Sphere :: struct {
-	color:    glsl.dvec3,
-	position: glsl.dvec3,
-	radius:   f64,
+	color:          glsl.dvec3,
+	reflectiveness: f64,
+	position:       glsl.dvec3,
+	radius:         f64,
 }
 
 Plane :: struct {
-	color:      glsl.dvec3,
-	y_position: f64,
+	color:          glsl.dvec3,
+	reflectiveness: f64,
+	y_position:     f64,
 }
 
 main :: proc() {
@@ -97,8 +110,13 @@ main :: proc() {
 	}
 
 	objects := [?]Object{
-		Plane{color = {0.2, 0.8, 0.3}, y_position = 0.0},
-		Sphere{color = {0.1, 0.3, 0.8}, position = {0.0, 1.0, 0.0}, radius = 1.0},
+		Plane{color = {0.2, 0.8, 0.3}, reflectiveness = 0.0, y_position = 0.0},
+		Sphere{
+			color = {0.1, 0.3, 0.8},
+			reflectiveness = 0.0,
+			position = {0.0, 1.0, 0.0},
+			radius = 1.0,
+		},
 	}
 
 	r := rand.create(0)
@@ -164,6 +182,15 @@ RandomDirectionInUnitSphere :: proc(r: ^rand.Rand) -> glsl.dvec3 {
 	}
 }
 
+RandomInHemisphere :: proc(normal: glsl.dvec3, r: ^rand.Rand) -> glsl.dvec3 {
+	in_unit_sphere := RandomDirectionInUnitSphere(r)
+	if (glsl.dot(in_unit_sphere, normal) > 0.0) {
+		return in_unit_sphere
+	} else {
+		return -in_unit_sphere
+	}
+}
+
 RayMarch :: proc(
 	ray: Ray,
 	objects: []Object,
@@ -211,6 +238,8 @@ RayMarch :: proc(
 		return
 	}
 
+	if depth > MaxBounces do return {}
+
 	totalDistance := 0.0
 	for {
 		point := ray.origin + ray.direction * totalDistance
@@ -232,20 +261,26 @@ RayMarch :: proc(
 			_, object := GetClosestObject(point, objects)
 			assert(object != nil)
 
-			target := point + normal + RandomDirectionInUnitSphere(r)
-			if depth < MaxBounces {
-				new_origin := point + normal * MinDistance
-				return Object_GetColor(
-					object^,
-				) * RayMarch(
-					Ray{origin = new_origin, direction = glsl.normalize(target - new_origin)},
-					objects,
-					r,
-					depth + 1,
-				)
-			} else {
-				return Object_GetColor(object^)
-			}
+			color := Object_GetColor(object^)
+			reflectiveness := Object_GetReflectiveness(object^)
+
+			return glsl.lerp(
+				color,
+				1.0,
+				reflectiveness,
+			) * RayMarch(
+				Ray{
+					origin = point + normal * MinDistance,
+					direction = glsl.lerp(
+						glsl.normalize(RandomInHemisphere(normal, r)),
+						normal,
+						reflectiveness,
+					),
+				},
+				objects,
+				r,
+				depth + 1,
+			)
 		}
 	}
 

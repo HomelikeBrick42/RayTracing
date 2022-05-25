@@ -6,12 +6,15 @@ import "core:sync"
 import "core:math"
 import "core:math/linalg/glsl"
 import "core:math/rand"
+when ODIN_OS == .Windows {
+	import "core:sys/windows"
+}
 
 import "vendor:glfw"
 import gl "vendor:opengl"
 
-Width :: 640
-Height :: 480
+Width :: 1280
+Height :: 720
 FOV :: 45.0
 
 Camera :: struct {
@@ -131,16 +134,22 @@ main :: proc() {
 		},
 	}
 
-	ThreadCount :: 12
-	#assert(Height % ThreadCount == 0)
+	thread_count: int = 8
+	when ODIN_OS == .Windows {
+		system_info: windows.SYSTEM_INFO
+		windows.GetSystemInfo(&system_info)
+		thread_count = int(system_info.dwNumberOfProcessors)
+	}
+    fmt.printf("Using %d threads\n", thread_count)
+	assert(Height % thread_count == 0)
 
 	@(static)
 	quit := false
 
 	start_barrier: sync.Barrier
 	end_barrier: sync.Barrier
-	sync.barrier_init(&start_barrier, ThreadCount + 1)
-	sync.barrier_init(&end_barrier, ThreadCount + 1)
+	sync.barrier_init(&start_barrier, thread_count + 1)
+	sync.barrier_init(&end_barrier, thread_count + 1)
 
 	RenderData :: struct {
 		start_barrier: ^sync.Barrier,
@@ -153,17 +162,17 @@ main :: proc() {
 		seed:          u64,
 	}
 
-	render_threads: [ThreadCount]^thread.Thread
-	render_datas: [ThreadCount]RenderData
-	for i in 0 .. ThreadCount - 1 {
+	render_threads := make([]^thread.Thread, thread_count)
+	render_datas := make([]RenderData, thread_count)
+	for i in 0 .. thread_count - 1 {
 		render_datas[i] = RenderData {
 			start_barrier = &start_barrier,
 			end_barrier   = &end_barrier,
 			camera        = &camera,
 			objects       = objects[:],
 			pixels        = pixels[:],
-			y_start       = (i + 0) * (Height / ThreadCount),
-			y_end         = (i + 1) * (Height / ThreadCount),
+			y_start       = (i + 0) * (Height / thread_count),
+			y_end         = (i + 1) * (Height / thread_count),
 			seed          = rand.uint64(),
 		}
 		render_threads[i] = thread.create_and_start_with_data(

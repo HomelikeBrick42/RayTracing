@@ -12,50 +12,13 @@ import gl "vendor:opengl"
 
 Width :: 640
 Height :: 480
-FOV :: 45.0
 
 Camera :: struct {
 	position: glsl.dvec3,
 	forward:  glsl.dvec3,
 	right:    glsl.dvec3,
 	up:       glsl.dvec3,
-}
-
-Ray :: struct {
-	origin:    glsl.dvec3,
-	direction: glsl.dvec3,
-}
-
-Draw :: proc(
-	camera: ^Camera,
-	objects: []Object,
-	y_start: int,
-	y_end: int,
-	pixels: []glsl.vec3,
-	r: ^rand.Rand,
-) {
-	for y in y_start .. y_end - 1 {
-		for x in 0 .. Width - 1 {
-			uv := glsl.dvec2{f64(x) / f64(Width), f64(y) / f64(Height)} * 2.0 - 1.0
-			when Width > Height {
-				uv.x *= f64(Width) / f64(Height)
-			} else {
-				uv.y *= f64(Height) / f64(Width)
-			}
-			uv += RandomDirectionInUnitCircle(r) / {f64(Width), f64(Height)}
-			uv *= math.tan_f64(FOV * math.RAD_PER_DEG * 0.5) * 2.0
-
-			ray := Ray {
-				origin    = camera.position,
-				direction = glsl.normalize_dvec3(
-					camera.forward + camera.right * uv.x + camera.up * uv.y,
-				),
-			}
-
-			color := RayMarch(ray, objects[:], r)
-			pixels[x + y * Width] += {cast(f32)color.r, cast(f32)color.g, cast(f32)color.b}
-		}
-	}
+	v_fov:    f64,
 }
 
 main :: proc() {
@@ -69,37 +32,33 @@ main :: proc() {
 
 	gl.load_up_to(4, 6, glfw.gl_set_proc_address)
 
-	pixels := new([Height * Width]glsl.vec3)
-	defer free(pixels)
-
 	texture: u32
 	gl.GenTextures(1, &texture)
-	gl.BindTexture(gl.TEXTURE_2D, texture)
 	defer gl.DeleteTextures(1, &texture)
-	gl.TextureStorage2D(texture, 1, gl.RGB32F, Width, Height)
+	gl.BindTexture(gl.TEXTURE_2D, texture)
+	gl.TextureParameteri(texture, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TextureParameteri(texture, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TextureParameteri(texture, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TextureParameteri(texture, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	gl.TextureStorage2D(texture, 1, gl.RGBA32F, Width, Height)
+	gl.BindImageTexture(0, texture, 0, false, 0, gl.READ_WRITE, gl.RGBA32F)
 
 	texture_index := u32(0)
 	gl.BindTextureUnit(texture_index, texture)
 
-	shader, shader_ok := gl.load_shaders_source(
+	shader, _ := gl.load_shaders_source(
 		string(#load("./VertexShader.glsl")),
 		string(#load("./FragmentShader.glsl")),
 	)
-	gl.UseProgram(shader)
 	gl.ProgramUniform1i(
 		shader,
 		gl.GetUniformLocation(shader, "u_Texture"),
 		i32(texture_index),
 	)
 
-	camera := Camera {
-		position = {0.0, 1.0, -3.0},
-		forward = {0.0, 0.0, 1.0},
-		right = {1.0, 0.0, 0.0},
-		up = {0.0, 1.0, 0.0},
-	}
+	compute_shader, _ := gl.load_compute_source(string(#load("./ComputeShader.glsl")))
 
-	objects := [?]Object{
+	planes := [?]Plane{
 		Plane{
 			material = Material{
 				color = {0.2, 0.8, 0.3},
@@ -109,11 +68,14 @@ main :: proc() {
 			},
 			y_position = 0.0,
 		},
+	}
+
+	spheres := [?]Sphere{
 		Sphere{
 			material = Material{
 				color = {0.1, 0.3, 0.8},
-				emission_color = {0.0, 0.0, 0.0},
 				reflectiveness = 0.0,
+				emission_color = {0.0, 0.0, 0.0},
 				scatter = 1.0,
 			},
 			position = {-1.1, 1.0, 0.0},
@@ -122,8 +84,8 @@ main :: proc() {
 		Sphere{
 			material = Material{
 				color = {0.0, 0.0, 0.0},
-				emission_color = glsl.dvec3{0.8, 0.4, 0.2} * 2.0,
 				reflectiveness = 0.0,
+				emission_color = glsl.dvec3{0.8, 0.4, 0.2} * 2.0,
 				scatter = 0.0,
 			},
 			position = {0.5, 0.5, -0.75},
@@ -131,56 +93,46 @@ main :: proc() {
 		},
 	}
 
-	ThreadCount :: 12
-	#assert(Height % ThreadCount == 0)
+	plane_buffer: u32
+	gl.GenBuffers(1, &plane_buffer)
+	defer gl.DeleteBuffers(1, &plane_buffer)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, plane_buffer)
+	gl.BufferData(
+		gl.SHADER_STORAGE_BUFFER,
+		len(planes) * size_of(planes[0]),
+		&planes[0],
+		gl.STATIC_DRAW,
+	)
+	gl.ProgramUniform1ui(
+		compute_shader,
+		gl.GetUniformLocation(compute_shader, "u_PlaneCount"),
+		len(planes),
+	)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 1, plane_buffer)
 
-	@(static)
-	quit := false
+	sphere_buffer: u32
+	gl.GenBuffers(1, &sphere_buffer)
+	defer gl.DeleteBuffers(1, &sphere_buffer)
+	gl.BindBuffer(gl.SHADER_STORAGE_BUFFER, sphere_buffer)
+	gl.BufferData(
+		gl.SHADER_STORAGE_BUFFER,
+		len(spheres) * size_of(spheres[0]),
+		&spheres[0],
+		gl.STATIC_DRAW,
+	)
+	gl.ProgramUniform1ui(
+		compute_shader,
+		gl.GetUniformLocation(compute_shader, "u_SphereCount"),
+		len(spheres),
+	)
+	gl.BindBufferBase(gl.SHADER_STORAGE_BUFFER, 2, sphere_buffer)
 
-	start_barrier: sync.Barrier
-	end_barrier: sync.Barrier
-	sync.barrier_init(&start_barrier, ThreadCount + 1)
-	sync.barrier_init(&end_barrier, ThreadCount + 1)
-
-	RenderData :: struct {
-		start_barrier: ^sync.Barrier,
-		end_barrier:   ^sync.Barrier,
-		camera:        ^Camera,
-		objects:       []Object,
-		pixels:        []glsl.vec3,
-		y_start:       int,
-		y_end:         int,
-		seed:          u64,
-	}
-
-	render_threads: [ThreadCount]^thread.Thread
-	render_datas: [ThreadCount]RenderData
-	for i in 0 .. ThreadCount - 1 {
-		render_datas[i] = RenderData {
-			start_barrier = &start_barrier,
-			end_barrier   = &end_barrier,
-			camera        = &camera,
-			objects       = objects[:],
-			pixels        = pixels[:],
-			y_start       = (i + 0) * (Height / ThreadCount),
-			y_end         = (i + 1) * (Height / ThreadCount),
-			seed          = rand.uint64(),
-		}
-		render_threads[i] = thread.create_and_start_with_data(
-			&render_datas[i],
-			proc(data: rawptr) {
-				using data := cast(^RenderData)data
-				r := rand.create(seed)
-				for !sync.atomic_load(&quit) {
-					sync.barrier_wait(start_barrier)
-					if sync.atomic_load(&quit) {
-						return
-					}
-					Draw(camera, objects, y_start, y_end, pixels, &r)
-					sync.barrier_wait(end_barrier)
-				}
-			},
-		)
+	camera := Camera {
+		position = {0.0, 1.0, -3.0},
+		forward = {0.0, 0.0, 1.0},
+		right = {1.0, 0.0, 0.0},
+		up = {0.0, 1.0, 0.0},
+		v_fov = 45.0,
 	}
 
 	samples: u32 = 0
@@ -193,22 +145,55 @@ main :: proc() {
 		delta := time - last_time
 		defer last_time = time
 
-		sync.barrier_wait(&start_barrier)
-		sync.barrier_wait(&end_barrier)
+		gl.UseProgram(compute_shader)
+		gl.ProgramUniform3dv(
+			compute_shader,
+			gl.GetUniformLocation(compute_shader, "u_Camera.position"),
+			1,
+			&camera.position[0],
+		)
+		gl.ProgramUniform3dv(
+			compute_shader,
+			gl.GetUniformLocation(compute_shader, "u_Camera.forward"),
+			1,
+			&camera.forward[0],
+		)
+		gl.ProgramUniform3dv(
+			compute_shader,
+			gl.GetUniformLocation(compute_shader, "u_Camera.right"),
+			1,
+			&camera.right[0],
+		)
+		gl.ProgramUniform3dv(
+			compute_shader,
+			gl.GetUniformLocation(compute_shader, "u_Camera.up"),
+			1,
+			&camera.up[0],
+		)
+		gl.ProgramUniform1d(
+			compute_shader,
+			gl.GetUniformLocation(compute_shader, "u_Camera.v_fov"),
+			camera.v_fov,
+		)
+
+		gl.ProgramUniform1f(
+			compute_shader,
+			gl.GetUniformLocation(compute_shader, "u_Time"),
+			f32(time),
+		)
+
+		#assert(Width % 8 == 0)
+		#assert(Height % 4 == 0)
+		gl.DispatchCompute(Width / 8, Height / 4, 1)
+		gl.MemoryBarrier(gl.ALL_BARRIER_BITS)
 
 		samples += 1
+		gl.UseProgram(shader)
 		gl.ProgramUniform1ui(shader, gl.GetUniformLocation(shader, "u_Samples"), samples)
-		gl.TextureSubImage2D(texture, 0, 0, 0, Width, Height, gl.RGB, gl.FLOAT, &pixels[0][0])
 		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 		glfw.SwapBuffers(window)
 
 		fmt.printf("FPS: %.3f, Samples: %i                \r", 1.0 / delta, samples)
 	}
 	glfw.HideWindow(window)
-
-	sync.atomic_store(&quit, true)
-	sync.barrier_wait(&start_barrier)
-	for render_thread in render_threads {
-		thread.join(render_thread)
-	}
 }

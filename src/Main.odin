@@ -182,6 +182,8 @@ main :: proc() {
 		)
 	}
 
+	glfw.SwapInterval(1)
+
 	samples: u32 = 0
 	last_sample_time := glfw.GetTime()
 	seconds_per_sample := 0.0

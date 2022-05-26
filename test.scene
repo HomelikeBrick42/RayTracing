@@ -1,0 +1,45 @@
+green_material = Material{
+    color          = Color{0.2, 0.8, 0.3},
+    emission_color = Color{0.0, 0.0, 0.0},
+    reflectiveness = 0.0,
+    scatter        = 1.0,
+}
+
+// commas are optional
+blue_material = Material{
+    color          = Color{0.1, 0.3, 0.8}
+    emission_color = Color{0.0, 0.0, 0.0}
+    reflectiveness = 0.0
+    scatter        = 1.0
+}
+
+SetBackgroundColor(Color{0.0, 0.0, 0.0})
+
+SetCamera(Camera{
+    position = {0.0, 1.0, -3.0}
+    forward  = {0.0, 0.0, 1.0}
+    right    = {1.0, 0.0, 0.0}
+    up       = {0.0, 1.0, 0.0}
+})
+
+AddObject(Plane{
+    material = green_material
+	y_position = 0.0
+})
+
+AddObject(Sphere{
+    material = blue_material
+    position = vec3{-1.1, 1.0, 0.0}
+    radius   = 1.0
+})
+
+AddObject(Sphere{
+    material = Material{
+        color          = Color{0.0, 0.0, 0.0}
+        emission_color = Color{0.8, 0.4, 0.2} * 2.0
+        reflectiveness = 0.0
+        scatter        = 0.0
+    }
+    position = vec3{0.5, 0.5, -0.75}
+    radius   = 0.5
+})

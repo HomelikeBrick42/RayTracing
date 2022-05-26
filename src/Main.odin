@@ -13,8 +13,8 @@ when ODIN_OS == .Windows {
 import "vendor:glfw"
 import gl "vendor:opengl"
 
-Width :: 1280
-Height :: 720
+Width :: 640
+Height :: 480
 FOV :: 45.0
 
 Camera :: struct {
@@ -79,6 +79,10 @@ main :: proc() {
 	gl.GenTextures(1, &texture)
 	gl.BindTexture(gl.TEXTURE_2D, texture)
 	defer gl.DeleteTextures(1, &texture)
+	gl.TextureParameteri(texture, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TextureParameteri(texture, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TextureParameteri(texture, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TextureParameteri(texture, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
 	gl.TextureStorage2D(texture, 1, gl.RGB32F, Width, Height)
 
 	texture_index := u32(0)
@@ -94,6 +98,7 @@ main :: proc() {
 		gl.GetUniformLocation(shader, "u_Texture"),
 		i32(texture_index),
 	)
+	gl.ProgramUniform2ui(shader, gl.GetUniformLocation(shader, "u_ImageSize"), Width, Height)
 
 	camera := Camera {
 		position = {0.0, 1.0, -3.0},
@@ -184,6 +189,17 @@ main :: proc() {
 
 	glfw.SwapInterval(1)
 
+	gl.ClearColor(0.1, 0.1, 0.1, 1.0)
+
+	glfw.SetKeyCallback(
+		window,
+		proc "c" (window: glfw.WindowHandle, key, scancode, action, mods: i32) {
+			if action == glfw.PRESS && key == glfw.KEY_R {
+				glfw.SetWindowSize(window, Width, Height)
+			}
+		},
+	)
+
 	samples: u32 = 0
 	last_sample_time := glfw.GetTime()
 	seconds_per_sample := 0.0
@@ -210,6 +226,17 @@ main :: proc() {
 				sync.atomic_store(&render_data.finished, false)
 			}
 		}
+
+		window_width, window_height := glfw.GetWindowSize(window)
+		gl.ProgramUniform2ui(
+			shader,
+			gl.GetUniformLocation(shader, "u_ScreenSize"),
+			u32(window_width),
+			u32(window_height),
+		)
+		gl.Viewport(0, 0, window_width, window_height)
+
+		gl.Clear(gl.COLOR_BUFFER_BIT)
 		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 		glfw.SwapBuffers(window)
 

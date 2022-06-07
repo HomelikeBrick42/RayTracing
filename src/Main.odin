@@ -437,13 +437,24 @@ TraceRay :: proc(
 
 	if hit, ok := closest_hit.(Hit); ok {
 		if portal, ok := closest_object.type.(Portal); ok {
+			point: glsl.dvec3
+			{
+				using portal.in_sphere
+				oc := ray.origin - position
+				a := glsl.dot(ray.direction, ray.direction)
+				b := 2.0 * glsl.dot(oc, ray.direction)
+				c := glsl.dot(oc, oc) - radius * radius
+				discriminant := b * b - 4 * a * c
+				distance := (-b + math.sqrt(discriminant)) / (2.0 * a)
+				point = ray.origin + ray.direction * distance
+			}
 			return glsl.lerp(
 				hit.material.diffuse_color,
 				1.0,
 				hit.material.reflectiveness,
 			) * TraceRay(
 				Ray{
-					origin = portal.out_sphere.position + ray.direction * portal.out_sphere.radius,
+					origin = portal.out_sphere.position + point - portal.in_sphere.position,
 					direction = glsl.lerp(
 						ray.direction,
 						glsl.normalize(RandomInHemisphere(hit.normal, r)),

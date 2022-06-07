@@ -20,8 +20,9 @@ when ODIN_OS == .Windows {
 	import "core:sys/windows"
 }
 
-Width :: 640
-Height :: 480
+WindowScale :: 3
+Width :: 300
+Height :: 200
 Aspect :: f64(Width) / f64(Height)
 IsDay :: true
 
@@ -30,6 +31,8 @@ Camera :: struct {
 	forward:  glsl.dvec3,
 	right:    glsl.dvec3,
 	up:       glsl.dvec3,
+	pitch:    f64,
+	yaw:      f64,
 	fov:      f64,
 }
 
@@ -112,7 +115,13 @@ main :: proc() {
 
 	glfw.WindowHint(glfw.RESIZABLE, 0)
 	glfw.WindowHint(glfw.VISIBLE, 0)
-	window := glfw.CreateWindow(Width, Height, "Ray Tracing", nil, nil)
+	window := glfw.CreateWindow(
+		Width * WindowScale,
+		Height * WindowScale,
+		"Ray Tracing",
+		nil,
+		nil,
+	)
 	if window == nil {
 		fmt.eprintf("GLFW Error {1}: {0}\n", glfw.GetError())
 		os.exit(1)
@@ -177,7 +186,7 @@ main :: proc() {
 		},
 		Object{
 			material = Material{
-				diffuse_color = {0.0, 0.0, 0.0},
+				diffuse_color = glsl.dvec3{0.1, 0.2, 0.8} * 0.25,
 				emission_color = {0.0, 0.0, 0.0},
 				reflectiveness = 0.25,
 				scatter = 0.0,
@@ -197,23 +206,23 @@ main :: proc() {
 			material = Material{
 				diffuse_color = {0.0, 0.0, 0.0},
 				emission_color = {0.0, 0.0, 0.0},
-				reflectiveness = 0.25,
+				reflectiveness = 0.75,
 				scatter = 0.0,
 			},
 			type = Portal{
 				in_sphere = Sphere{position = {-1.6, 0.6, -3.0}, radius = 0.6},
-				out_sphere = Sphere{position = {1.6, 0.6, -3.0}, radius = 0.6},
+				out_sphere = Sphere{position = {1.8, 0.6, -3.0}, radius = 0.6},
 			},
 		},
 		Object{
 			material = Material{
 				diffuse_color = {0.0, 0.0, 0.0},
 				emission_color = {0.0, 0.0, 0.0},
-				reflectiveness = 0.25,
+				reflectiveness = 0.75,
 				scatter = 0.0,
 			},
 			type = Portal{
-				in_sphere = Sphere{position = {1.6, 0.6, -3.0}, radius = 0.6},
+				in_sphere = Sphere{position = {1.8, 0.6, -3.0}, radius = 0.6},
 				out_sphere = Sphere{position = {-1.6, 0.6, -3.0}, radius = 0.6},
 			},
 		},
@@ -291,33 +300,67 @@ main :: proc() {
 			dt := time - last_time
 			last_time = time
 
-			if glfw.GetKey(window, glfw.KEY_R) == glfw.PRESS {
-				reset_samples = true
+			// Camera
+			{
+				CameraSpeed :: 1.0
+				CameraRotationSpeed :: 45.0
+
+				if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
+					camera.position += camera.forward * CameraSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
+					camera.position -= camera.forward * CameraSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
+					camera.position -= camera.right * CameraSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
+					camera.position += camera.right * CameraSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_Q) == glfw.PRESS {
+					camera.position -= camera.up * CameraSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_E) == glfw.PRESS {
+					camera.position += camera.up * CameraSpeed * dt
+					reset_samples = true
+				}
+
+				if glfw.GetKey(window, glfw.KEY_LEFT) == glfw.PRESS {
+					camera.yaw -= CameraRotationSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_RIGHT) == glfw.PRESS {
+					camera.yaw += CameraRotationSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_UP) == glfw.PRESS {
+					camera.pitch -= CameraRotationSpeed * dt
+					reset_samples = true
+				}
+				if glfw.GetKey(window, glfw.KEY_DOWN) == glfw.PRESS {
+					camera.pitch += CameraRotationSpeed * dt
+					reset_samples = true
+				}
+
+				if reset_samples {
+					using camera
+					forward.x = math.sin(yaw * math.RAD_PER_DEG) * math.cos(pitch * math.RAD_PER_DEG)
+					forward.y = -math.sin(pitch * math.RAD_PER_DEG)
+					forward.z = math.cos(yaw * math.RAD_PER_DEG) * math.cos(pitch * math.RAD_PER_DEG)
+					forward = glsl.normalize(forward)
+					right = glsl.cross(glsl.dvec3{0.0, 1.0, 0.0}, forward)
+					right = glsl.normalize(right)
+					up = glsl.cross(forward, right)
+					up = glsl.normalize(up)
+				}
 			}
 
-			CameraSpeed :: 1.0
-			if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
-				camera.position.z += CameraSpeed * dt
-				reset_samples = true
-			}
-			if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
-				camera.position.z -= CameraSpeed * dt
-				reset_samples = true
-			}
-			if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
-				camera.position.x -= CameraSpeed * dt
-				reset_samples = true
-			}
-			if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
-				camera.position.x += CameraSpeed * dt
-				reset_samples = true
-			}
-			if glfw.GetKey(window, glfw.KEY_Q) == glfw.PRESS {
-				camera.position.y -= CameraSpeed * dt
-				reset_samples = true
-			}
-			if glfw.GetKey(window, glfw.KEY_E) == glfw.PRESS {
-				camera.position.y += CameraSpeed * dt
+			if glfw.GetKey(window, glfw.KEY_R) == glfw.PRESS {
 				reset_samples = true
 			}
 

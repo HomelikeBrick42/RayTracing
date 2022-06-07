@@ -2,6 +2,7 @@ package main
 
 import "core:c"
 import "core:os"
+import "core:mem"
 import "core:fmt"
 import "core:runtime"
 
@@ -244,49 +245,131 @@ main :: proc() {
 
 	samples := u32(0)
 	last_time := glfw.GetTime()
+	last_frame_time := glfw.GetTime()
 	glfw.ShowWindow(window)
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()
 
-		for task in thread.pool_pop_done(&pool) {
-			y := (^TaskData)(task.data).start_y
-			gl.TextureSubImage2D(
-				texture,
-				0,
-				0,
-				i32(y),
-				Width,
-				HeightPerTask,
-				gl.RGB,
-				gl.FLOAT,
-				&pixels[y * Width],
-			)
-		}
-		if thread.pool_is_empty(&pool) {
-			samples += 1
+		reset_samples := false
+
+		// Update
+		{
 			time := glfw.GetTime()
 			dt := time - last_time
 			last_time = time
-			fmt.printf(
-				"\rSeconds per sample: %.3f, Samples per second: %.3f, Samples: %d                ",
-				dt,
-				1.0 / dt,
-				samples,
-			)
-			for thread_data in &thread_datas {
-				thread_data.camera = camera
-				thread_data.objects = objects[:]
-				thread_data.pixels = pixels
-				thread.pool_add_task(&pool, context.allocator, TaskProc, &thread_data)
+
+			if glfw.GetKey(window, glfw.KEY_R) == glfw.PRESS {
+				reset_samples = true
+			}
+
+			CameraSpeed :: 0.5
+			if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
+				camera.position.z += CameraSpeed * dt
+				reset_samples = true
+			}
+			if glfw.GetKey(window, glfw.KEY_S) == glfw.PRESS {
+				camera.position.z -= CameraSpeed * dt
+				reset_samples = true
+			}
+			if glfw.GetKey(window, glfw.KEY_A) == glfw.PRESS {
+				camera.position.x -= CameraSpeed * dt
+				reset_samples = true
+			}
+			if glfw.GetKey(window, glfw.KEY_D) == glfw.PRESS {
+				camera.position.x += CameraSpeed * dt
+				reset_samples = true
+			}
+			if glfw.GetKey(window, glfw.KEY_Q) == glfw.PRESS {
+				camera.position.y -= CameraSpeed * dt
+				reset_samples = true
+			}
+			if glfw.GetKey(window, glfw.KEY_E) == glfw.PRESS {
+				camera.position.y += CameraSpeed * dt
+				reset_samples = true
+			}
+
+			if reset_samples {
+				for !thread.pool_is_empty(&pool) {
+					for task in thread.pool_pop_done(&pool) {
+						// do nothing
+					}
+				}
+				mem.set(raw_data(pixels), 0, len(pixels) * size_of(pixels[0]))
+				gl.TextureSubImage2D(
+					texture,
+					0,
+					0,
+					0,
+					Width,
+					Height,
+					gl.RGB,
+					gl.FLOAT,
+					raw_data(pixels),
+				)
+				samples = 0
 			}
 		}
 
-		gl.UseProgram(shader)
-		gl.Uniform1ui(gl.GetUniformLocation(shader, "u_Texture"), TextureIndex)
-		gl.Uniform1ui(gl.GetUniformLocation(shader, "u_Samples"), samples)
-		gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+		// Render
+		{
+			for task in thread.pool_pop_done(&pool) {
+				y := (^TaskData)(task.data).start_y
+				gl.TextureSubImage2D(
+					texture,
+					0,
+					0,
+					i32(y),
+					Width,
+					HeightPerTask,
+					gl.RGB,
+					gl.FLOAT,
+					&pixels[y * Width],
+				)
+			}
+			if thread.pool_is_empty(&pool) {
+				samples += 1
+				time := glfw.GetTime()
+				frame_dt := time - last_frame_time
+				last_frame_time = time
+				fmt.printf(
+					"\rSeconds per sample: %.3f, Samples per second: %.3f, Samples: %d                ",
+					frame_dt,
+					1.0 / frame_dt,
+					samples,
+				)
+				for thread_data in &thread_datas {
+					thread_data.camera = camera
+					thread_data.objects = objects[:]
+					thread_data.pixels = pixels
+					thread.pool_add_task(&pool, context.allocator, TaskProc, &thread_data)
+				}
+			}
+			if reset_samples {
+				for !thread.pool_is_empty(&pool) {
+					for task in thread.pool_pop_done(&pool) {
+						y := (^TaskData)(task.data).start_y
+						gl.TextureSubImage2D(
+							texture,
+							0,
+							0,
+							i32(y),
+							Width,
+							HeightPerTask,
+							gl.RGB,
+							gl.FLOAT,
+							&pixels[y * Width],
+						)
+					}
+				}
+			}
 
-		glfw.SwapBuffers(window)
+			gl.UseProgram(shader)
+			gl.Uniform1ui(gl.GetUniformLocation(shader, "u_Texture"), TextureIndex)
+			gl.Uniform1ui(gl.GetUniformLocation(shader, "u_Samples"), samples)
+			gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+
+			glfw.SwapBuffers(window)
+		}
 	}
 	glfw.HideWindow(window)
 }

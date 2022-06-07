@@ -56,6 +56,7 @@ Object :: struct {
 	material: Material,
 	type:     union {
 		Sphere,
+		Portal,
 	},
 }
 
@@ -64,30 +65,37 @@ Sphere :: struct {
 	radius:   f64,
 }
 
-Object_TryHit :: proc(object: Object, ray: Ray) -> Maybe(Hit) {
-	switch o in object.type {
-	case Sphere:
-		sphere := o
-		oc := ray.origin - sphere.position
-		a := glsl.dot(ray.direction, ray.direction)
-		b := 2.0 * glsl.dot(oc, ray.direction)
-		c := glsl.dot(oc, oc) - sphere.radius * sphere.radius
-		discriminant := b * b - 4 * a * c
-		if discriminant >= 0 {
-			distance := (-b - math.sqrt(discriminant)) / (2.0 * a)
-			if distance >= 0 {
-				point := ray.origin + ray.direction * distance
-				normal := glsl.normalize(point - sphere.position)
-				return Hit{
-					distance = distance,
-					point = point,
-					normal = normal,
-					material = object.material,
-				}
-			}
+Portal :: struct {
+	in_sphere:  Sphere,
+	out_sphere: Sphere,
+}
+
+Sphere_TryHit :: proc(using sphere: Sphere, ray: Ray, material: Material) -> Maybe(Hit) {
+	oc := ray.origin - position
+	a := glsl.dot(ray.direction, ray.direction)
+	b := 2.0 * glsl.dot(oc, ray.direction)
+	c := glsl.dot(oc, oc) - radius * radius
+	discriminant := b * b - 4 * a * c
+	if discriminant >= 0 {
+		distance := (-b - math.sqrt(discriminant)) / (2.0 * a)
+		if distance >= 0 {
+			point := ray.origin + ray.direction * distance
+			normal := glsl.normalize(point - position)
+			return Hit{distance = distance, point = point, normal = normal, material = material}
 		}
 	}
 	return nil
+}
+
+Object_TryHit :: proc(object: Object, ray: Ray) -> Maybe(Hit) {
+	switch o in object.type {
+	case Sphere:
+		return Sphere_TryHit(o, ray, object.material)
+	case Portal:
+		return Sphere_TryHit(o.in_sphere, ray, object.material)
+	case:
+		return nil
+	}
 }
 
 main :: proc() {
@@ -150,7 +158,7 @@ main :: proc() {
 	}
 
 	camera := Camera {
-		position = {0.0, 1.0, -4.0},
+		position = {0.0, 1.0, -5.0},
 		forward = {0.0, 0.0, 1.0},
 		right = {1.0, 0.0, 0.0},
 		up = {0.0, 1.0, 0.0},
@@ -184,6 +192,30 @@ main :: proc() {
 				scatter = 1.0,
 			},
 			type = Sphere{position = {1.0, 0.4, -1.0}, radius = 0.4},
+		},
+		Object{
+			material = Material{
+				diffuse_color = {0.0, 0.0, 0.0},
+				emission_color = {0.0, 0.0, 0.0},
+				reflectiveness = 0.25,
+				scatter = 0.0,
+			},
+			type = Portal{
+				in_sphere = Sphere{position = {-1.6, 0.6, -3.0}, radius = 0.6},
+				out_sphere = Sphere{position = {1.6, 0.6, -3.0}, radius = 0.6},
+			},
+		},
+		Object{
+			material = Material{
+				diffuse_color = {0.0, 0.0, 0.0},
+				emission_color = {0.0, 0.0, 0.0},
+				reflectiveness = 0.25,
+				scatter = 0.0,
+			},
+			type = Portal{
+				in_sphere = Sphere{position = {1.6, 0.6, -3.0}, radius = 0.6},
+				out_sphere = Sphere{position = {-1.6, 0.6, -3.0}, radius = 0.6},
+			},
 		},
 	}
 
@@ -382,41 +414,67 @@ TraceRay :: proc(
 	r: ^rand.Rand,
 	allowed_bounces: int,
 ) -> glsl.dvec3 {
+	objects := objects
+
 	if allowed_bounces < 0 do return {0.0, 0.0, 0.0}
 
 	closest_hit: Maybe(Hit)
-	for object in objects {
+	closest_object: ^Object
+	for object in &objects {
 		hit := Object_TryHit(object, ray)
 		if hit, ok := hit.(Hit); ok {
 			if close_hit, ok := closest_hit.(Hit); ok {
 				if hit.distance < close_hit.distance {
 					closest_hit = hit
+					closest_object = &object
 				}
 			} else {
 				closest_hit = hit
+				closest_object = &object
 			}
 		}
 	}
 
 	if hit, ok := closest_hit.(Hit); ok {
-		return glsl.lerp(
-			hit.material.diffuse_color,
-			1.0,
-			hit.material.reflectiveness,
-		) * TraceRay(
-			Ray{
-				origin = hit.point,
-				direction = glsl.lerp(
-					glsl.reflect(ray.direction, hit.normal),
-					glsl.normalize(RandomInHemisphere(hit.normal, r)),
-					hit.material.scatter,
-				),
-			},
-			objects,
-			sky_color,
-			r,
-			allowed_bounces - 1,
-		) + hit.material.emission_color
+		if portal, ok := closest_object.type.(Portal); ok {
+			return glsl.lerp(
+				hit.material.diffuse_color,
+				1.0,
+				hit.material.reflectiveness,
+			) * TraceRay(
+				Ray{
+					origin = portal.out_sphere.position + ray.direction * portal.out_sphere.radius,
+					direction = glsl.lerp(
+						ray.direction,
+						glsl.normalize(RandomInHemisphere(hit.normal, r)),
+						hit.material.scatter,
+					),
+				},
+				objects,
+				sky_color,
+				r,
+				allowed_bounces - 1,
+			) + hit.material.emission_color
+		} else {
+			return glsl.lerp(
+				hit.material.diffuse_color,
+				1.0,
+				hit.material.reflectiveness,
+			) * TraceRay(
+				Ray{
+					origin = hit.point,
+					direction = glsl.lerp(
+						glsl.reflect(ray.direction, hit.normal),
+						glsl.normalize(RandomInHemisphere(hit.normal, r)),
+						hit.material.scatter,
+					),
+				},
+				objects,
+				sky_color,
+				r,
+				allowed_bounces - 1,
+			) + hit.material.emission_color
+		}
 	} else {
 		return sky_color(ray)
 	}

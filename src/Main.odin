@@ -23,7 +23,7 @@ when ODIN_OS == .Windows {
 Width :: 640
 Height :: 480
 Aspect :: f64(Width) / f64(Height)
-IsDay :: false
+IsDay :: true
 
 Camera :: struct {
 	position: glsl.dvec3,
@@ -169,10 +169,10 @@ main :: proc() {
 		},
 		Object{
 			material = Material{
-				diffuse_color = {0.1, 0.2, 0.8},
+				diffuse_color = {0.0, 0.0, 0.0},
 				emission_color = {0.0, 0.0, 0.0},
-				reflectiveness = 0.0,
-				scatter = 1.0,
+				reflectiveness = 0.25,
+				scatter = 0.0,
 			},
 			type = Sphere{position = {-0.4, 1.0, 0.0}, radius = 1.0},
 		},
@@ -206,22 +206,23 @@ main :: proc() {
 
 	TaskData :: struct {
 		start_y: int,
-		height:  int,
+		end_y:   int,
 		r:       rand.Rand,
 		camera:  Camera,
 		objects: []Object,
 		pixels:  []glsl.vec3,
 	}
-	thread_datas: [Height / HeightPerTask]TaskData
+	thread_datas := make([]TaskData, Height / HeightPerTask)
+	defer delete(thread_datas)
 	for thread_data, i in &thread_datas {
 		thread_data.start_y = i * HeightPerTask
-		thread_data.height = HeightPerTask
+		thread_data.end_y = (i + 1) * HeightPerTask - 1
 		thread_data.r = rand.create(rand.uint64())
 	}
 
 	TaskProc :: proc(task: thread.Task) {
 		using thread_data := cast(^TaskData)task.data
-		for y in start_y .. start_y + height - 1 {
+		for y in start_y .. end_y {
 			for x in 0 .. Width - 1 {
 				uv := glsl.dvec2{f64(x) / f64(Width), f64(y) / f64(Height)} * 2.0 - 1.0
 				when Width > Height {
@@ -262,7 +263,7 @@ main :: proc() {
 				reset_samples = true
 			}
 
-			CameraSpeed :: 0.5
+			CameraSpeed :: 1.0
 			if glfw.GetKey(window, glfw.KEY_W) == glfw.PRESS {
 				camera.position.z += CameraSpeed * dt
 				reset_samples = true

@@ -339,18 +339,18 @@ main :: proc() {
 					reset_samples = true
 				}
 				if glfw.GetKey(window, glfw.KEY_UP) == glfw.PRESS {
-					camera.pitch -= CameraRotationSpeed * dt
+					camera.pitch += CameraRotationSpeed * dt
 					reset_samples = true
 				}
 				if glfw.GetKey(window, glfw.KEY_DOWN) == glfw.PRESS {
-					camera.pitch += CameraRotationSpeed * dt
+					camera.pitch -= CameraRotationSpeed * dt
 					reset_samples = true
 				}
 
 				if reset_samples {
 					using camera
 					forward.x = math.sin(yaw * math.RAD_PER_DEG) * math.cos(pitch * math.RAD_PER_DEG)
-					forward.y = -math.sin(pitch * math.RAD_PER_DEG)
+					forward.y = math.sin(pitch * math.RAD_PER_DEG)
 					forward.z = math.cos(yaw * math.RAD_PER_DEG) * math.cos(pitch * math.RAD_PER_DEG)
 					forward = glsl.normalize(forward)
 					right = glsl.cross(glsl.dvec3{0.0, 1.0, 0.0}, forward)

@@ -20,9 +20,9 @@ when ODIN_OS == .Windows {
 	import "core:sys/windows"
 }
 
-WindowScale :: 3
-Width :: 300
-Height :: 200
+WindowScale :: 1
+Width :: 640
+Height :: 480
 Aspect :: f64(Width) / f64(Height)
 IsDay :: true
 

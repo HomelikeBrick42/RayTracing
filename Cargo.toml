@@ -1,0 +1,10 @@
+[package]
+name = "raytracer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+image = "0.24.3"
+num = "0.4.0"
+rand = "0.8.5"
+threadpool = "1.8.1"

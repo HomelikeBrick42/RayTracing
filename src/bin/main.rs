@@ -18,7 +18,7 @@ where
         .iter()
         .map(|object| object.intersect(ray))
         .flatten()
-        .filter(|hit| hit.distance >= T::zero())
+        .filter(|hit| hit.distance > T::zero())
         .min_by(|a, b| {
             a.distance
                 .partial_cmp(&b.distance)
@@ -51,7 +51,7 @@ fn trace_ray(
     if let Some(hit) = get_nearest_hit(&ray, objects) {
         trace_ray(
             Ray {
-                origin: hit.position + hit.normal * 0.001.into(),
+                origin: hit.position,
                 direction: rand_in_hemisphere(hit.normal, rng)
                     .lerp(hit.normal, hit.material.smoothness)
                     .normalized(),
@@ -76,8 +76,9 @@ fn trace_ray(
 fn main() {
     const WIDTH: usize = 1080;
     const HEIGHT: usize = 720;
-    const SAMPLES: usize = 256;
-    const MAX_BOUNCES: usize = 50;
+    const SAMPLES: usize = 512;
+    const MAX_BOUNCES: usize = 128;
+    const THREAD_COUNT: usize = 8;
 
     let objects: Arc<[Box<dyn Intersectable<_, _> + Send + Sync>]> = Arc::new([
         Box::new(Sphere {
@@ -141,7 +142,7 @@ fn main() {
 
     let (sender, receiver) = std::sync::mpsc::channel::<(usize, Vec<Vector3<f64>>)>();
 
-    let pool = ThreadPool::new(12);
+    let pool = ThreadPool::new(THREAD_COUNT);
     for y in 0..HEIGHT {
         let sender = sender.clone();
         let objects = objects.clone();
@@ -164,7 +165,7 @@ fn main() {
         });
     }
 
-    let mut image = image::Rgb32FImage::new(WIDTH as _, HEIGHT as _);
+    let mut image = image::RgbImage::new(WIDTH as _, HEIGHT as _);
     let mut row_count = 0usize;
     let mut rows = image
         .enumerate_rows_mut()
@@ -175,9 +176,15 @@ fn main() {
         std::io::stdout().flush().unwrap();
         for (x, (_, _, pixel)) in rows[y].take().unwrap().enumerate() {
             *pixel = Rgb([
-                (pixels[x].x / SAMPLES as f64) as f32,
-                (pixels[x].y / SAMPLES as f64) as f32,
-                (pixels[x].z / SAMPLES as f64) as f32,
+                ((pixels[x].x / SAMPLES as f64).sqrt() * 255.0)
+                    .clamp(0.0, 255.0)
+                    .round() as u8,
+                ((pixels[x].y / SAMPLES as f64).sqrt() * 255.0)
+                    .clamp(0.0, 255.0)
+                    .round() as u8,
+                ((pixels[x].z / SAMPLES as f64).sqrt() * 255.0)
+                    .clamp(0.0, 255.0)
+                    .round() as u8,
             ]);
         }
         row_count += 1;
@@ -185,26 +192,8 @@ fn main() {
     println!("\rDone.        ");
 
     const FILEPATH: &'static str = "output.png";
-    image::save_buffer_with_format(
-        FILEPATH,
-        &image
-            .pixels()
-            .map(|pixel| {
-                [
-                    (pixel.0[0] * 255.9).clamp(0.0, 255.0) as u8,
-                    (pixel.0[1] * 255.9).clamp(0.0, 255.0) as u8,
-                    (pixel.0[2] * 255.9).clamp(0.0, 255.0) as u8,
-                    255,
-                ]
-                .into_iter()
-            })
-            .flatten()
-            .collect::<Vec<_>>(),
-        WIDTH as _,
-        HEIGHT as _,
-        image::ColorType::Rgba8,
-        image::ImageFormat::Png,
-    )
-    .unwrap();
+    image
+        .save_with_format(FILEPATH, image::ImageFormat::Png)
+        .unwrap();
     println!("Saved {FILEPATH}");
 }

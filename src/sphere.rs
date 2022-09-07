@@ -25,12 +25,12 @@ where
             let mut distance = (-half_b - discriminant.sqrt()) / a;
             let (position, normal) = if distance >= T::zero() {
                 let position = ray.origin + ray.direction * distance.into();
-                let normal = (position - self.position).normalized();
+                let normal = (position - self.position) / self.radius.into();
                 (position, normal)
             } else {
                 distance = (-half_b + discriminant.sqrt()) / a;
                 let position = ray.origin + ray.direction * distance.into();
-                let normal = -(position - self.position).normalized();
+                let normal = -(position - self.position) / self.radius.into();
                 (position, normal)
             };
             Some(RayHit {

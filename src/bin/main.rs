@@ -74,7 +74,7 @@ fn trace_ray(
 }
 
 fn main() {
-    const WIDTH: usize = 1080;
+    const WIDTH: usize = 1280;
     const HEIGHT: usize = 720;
     const SAMPLES: usize = 512;
     const MAX_BOUNCES: usize = 128;
@@ -153,9 +153,9 @@ fn main() {
             for x in 0..WIDTH {
                 for _ in 0..SAMPLES {
                     let ray = camera.get_ray(
-                        (x as f64 / WIDTH as f64) * 2.0 - 1.0
+                        ((x as f64 + 0.5) / WIDTH as f64) * 2.0 - 1.0
                             + ((rng.gen::<f64>() * 2.0 - 1.0) / WIDTH as f64),
-                        -((y as f64 / HEIGHT as f64) * 2.0 - 1.0
+                        -(((y as f64 + 0.5) / HEIGHT as f64) * 2.0 - 1.0
                             + ((rng.gen::<f64>() * 2.0 - 1.0) / HEIGHT as f64)),
                     );
                     row[x] += trace_ray(ray, &*objects, &mut rng, MAX_BOUNCES);

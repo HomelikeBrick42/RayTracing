@@ -2,7 +2,7 @@ use std::fmt::Debug;
 
 use num::traits::real::Real;
 
-use crate::{Intersectable, Material, Ray, RayHit, Vector3};
+use crate::{Intersectable, Material, Ray, RayHit, Vector3, SDF};
 
 pub struct Sphere<T, C> {
     pub position: Vector3<T>,
@@ -42,6 +42,19 @@ where
         } else {
             None
         }
+    }
+}
+
+impl<T, C> SDF<T, C> for Sphere<T, C>
+where
+    T: Real,
+    C: Clone,
+{
+    fn get_sdf(&self, point: Vector3<T>) -> (T, Material<T, C>) {
+        (
+            (point - self.position).length() - self.radius,
+            self.material.clone(),
+        )
     }
 }
 

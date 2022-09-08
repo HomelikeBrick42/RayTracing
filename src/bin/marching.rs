@@ -2,19 +2,19 @@ use std::{io::Write, sync::Arc};
 
 use image::Rgb;
 
-use num::Zero;
+use num::traits::real::Real;
 use rand::Rng;
 use raytracer::*;
 use threadpool::ThreadPool;
 
 fn main() {
-    const WIDTH: usize = 1280;
-    const HEIGHT: usize = 720;
-    const SAMPLES: usize = 512;
-    const MAX_BOUNCES: usize = 128;
+    const WIDTH: usize = 640;
+    const HEIGHT: usize = 480;
+    const SAMPLES: usize = 64;
+    const MAX_BOUNCES: usize = 64;
     const THREAD_COUNT: usize = 8;
 
-    let objects: Arc<[Box<dyn Intersectable<_, _> + Send + Sync>]> = Arc::new([
+    let objects: Arc<[Box<dyn SDF<f64, f64> + Send + Sync>]> = Arc::new([
         Box::new(Sphere {
             position: Vector3 {
                 x: 0.0,
@@ -92,7 +92,7 @@ fn main() {
                         -(((y as f64 + 0.5) / HEIGHT as f64) * 2.0 - 1.0
                             + ((rng.gen::<f64>() * 2.0 - 1.0) / HEIGHT as f64)),
                     );
-                    row[x] += trace_ray(ray, &objects, &mut rng, MAX_BOUNCES);
+                    row[x] += march_ray(ray, &objects, &mut rng, MAX_BOUNCES);
                 }
             }
             sender.send((y, row)).unwrap();
@@ -132,55 +132,65 @@ fn main() {
     println!("Saved {FILEPATH}");
 }
 
-fn get_nearest_hit<T, C>(
-    ray: &Ray<T>,
-    objects: &[Box<dyn Intersectable<T, C> + Send + Sync>],
-) -> Option<RayHit<T, C>>
+fn get_object<T, C>(
+    point: Vector3<T>,
+    objects: &[Box<dyn SDF<T, C> + Send + Sync>],
+) -> Option<(T, Material<T, C>)>
 where
-    T: PartialOrd + Zero,
+    T: Real,
 {
     objects
         .iter()
-        .map(|object| object.intersect(ray))
-        .flatten()
-        .filter(|hit| hit.distance > T::zero())
-        .min_by(|a, b| {
-            a.distance
-                .partial_cmp(&b.distance)
+        .map(|object| object.get_sdf(point.clone()))
+        .min_by(|(a_dist, _), (b_dist, _)| {
+            a_dist
+                .abs()
+                .partial_cmp(&b_dist.abs())
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
 }
 
-pub fn trace_ray(
-    ray: Ray<f64>,
-    objects: &[Box<dyn Intersectable<f64, f64> + Send + Sync>],
+pub fn march_ray(
+    mut ray: Ray<f64>,
+    objects: &[Box<dyn SDF<f64, f64> + Send + Sync>],
     rng: &mut impl rand::Rng,
     depth: usize,
 ) -> Vector3<f64> {
+    const MIN_DISTANCE: f64 = 0.001;
+    const MAX_DISTANCE: f64 = 10000.0;
     if depth == 0 {
         return Vector3::zero();
     }
-    if let Some(hit) = get_nearest_hit(&ray, objects) {
-        trace_ray(
-            Ray {
-                origin: hit.position + hit.normal * 0.001.into(),
-                direction: rand_in_hemisphere(hit.normal, rng)
-                    .lerp(hit.normal, hit.material.smoothness)
-                    .normalized(),
-            },
-            objects,
-            rng,
-            depth - 1,
-        ) * hit.material.diffuse_color
-            + hit.material.emissive_color
-    } else {
-        Vector3::one().lerp(
-            Vector3 {
-                x: 0.4,
-                y: 0.6,
-                z: 0.8,
-            },
-            ray.direction.y * 0.5 + 0.5,
-        )
+    loop {
+        match get_object(ray.origin, objects) {
+            Some((distance, material)) if distance <= MAX_DISTANCE => {
+                ray.origin += ray.direction * distance.into();
+                if distance < MIN_DISTANCE {
+                    let normal = -ray.direction;
+                    return march_ray(
+                        Ray {
+                            origin: ray.origin + normal * MIN_DISTANCE.into() * 2.0.into(),
+                            direction: rand_in_hemisphere(normal, rng)
+                                .lerp(normal, material.smoothness)
+                                .normalized(),
+                        },
+                        objects,
+                        rng,
+                        depth - 1,
+                    ) * material.diffuse_color
+                        + material.emissive_color;
+                }
+            }
+            _ => {
+                return Vector3::one().lerp(
+                    Vector3 {
+                        x: 0.4,
+                        y: 0.6,
+                        z: 0.8,
+                    },
+                    ray.direction.y * 0.5 + 0.5,
+                );
+            }
+        }
     }
 }

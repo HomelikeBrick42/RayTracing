@@ -2,7 +2,6 @@ use std::{io::Write, sync::Arc};
 
 use image::Rgb;
 
-use num::traits::real::Real;
 use rand::Rng;
 use raytracer::*;
 use threadpool::ThreadPool;
@@ -10,7 +9,7 @@ use threadpool::ThreadPool;
 fn main() {
     const WIDTH: usize = 640;
     const HEIGHT: usize = 480;
-    const SAMPLES: usize = 2048;
+    const SAMPLES: usize = 512;
     const MAX_BOUNCES: usize = 64;
     const THREAD_COUNT: usize = 8;
 
@@ -30,7 +29,7 @@ fn main() {
                         z: 0.8,
                     },
                     emissive_color: Vector3::zero(),
-                    smoothness: 0.0,
+                    smoothness: 1.0,
                 },
             }),
             cutout: Box::new(Sphere {
@@ -50,6 +49,27 @@ fn main() {
                     smoothness: 0.0,
                 },
             }),
+        }),
+        Box::new(Sphere {
+            position: Vector3 {
+                x: 0.2,
+                y: 1.0,
+                z: -0.2,
+            },
+            radius: 0.1,
+            material: Material {
+                diffuse_color: Vector3 {
+                    x: 0.8,
+                    y: 0.7,
+                    z: 0.5,
+                },
+                emissive_color: Vector3 {
+                    x: 0.8,
+                    y: 0.7,
+                    z: 0.5,
+                } * 10.0.into(),
+                smoothness: 0.0,
+            },
         }),
         Box::new(Sphere {
             position: Vector3 {
@@ -151,13 +171,13 @@ fn main() {
     println!("Saved {FILEPATH}");
 }
 
-fn get_object<T, C>(
-    point: Vector3<T>,
-    objects: &[Box<dyn SDF<T, C> + Send + Sync>],
-) -> Option<(T, Material<T, C>)>
-where
-    T: Real,
-{
+const MIN_DISTANCE: f64 = 0.001;
+const MAX_DISTANCE: f64 = 10000.0;
+
+fn get_object(
+    point: Vector3<f64>,
+    objects: &[Box<dyn SDF<f64, f64> + Send + Sync>],
+) -> (f64, Material<f64, f64>) {
     objects
         .iter()
         .map(|object| object.get_sdf(point.clone()))
@@ -167,6 +187,7 @@ where
                 .partial_cmp(&b_dist.abs())
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
+        .unwrap_or_else(|| (MAX_DISTANCE, Material::default()))
 }
 
 pub fn march_ray(
@@ -175,41 +196,90 @@ pub fn march_ray(
     rng: &mut impl rand::Rng,
     depth: usize,
 ) -> Vector3<f64> {
-    const MIN_DISTANCE: f64 = 0.001;
-    const MAX_DISTANCE: f64 = 10000.0;
     if depth == 0 {
         return Vector3::zero();
     }
     loop {
-        match get_object(ray.origin, objects) {
-            Some((distance, material)) if distance <= MAX_DISTANCE => {
-                ray.origin += ray.direction * distance.into();
-                if distance < MIN_DISTANCE {
-                    let normal = -ray.direction;
-                    return march_ray(
-                        Ray {
-                            origin: ray.origin + normal * MIN_DISTANCE.into() * 2.0.into(),
-                            direction: rand_in_hemisphere(normal, rng)
-                                .lerp(normal, material.smoothness)
-                                .normalized(),
-                        },
+        let (distance, material) = get_object(ray.origin, objects);
+        if distance < MAX_DISTANCE {
+            ray.origin += ray.direction * distance.into();
+            if distance < MIN_DISTANCE {
+                let normal = Vector3 {
+                    x: get_object(
+                        ray.origin
+                            + Vector3 {
+                                x: MIN_DISTANCE,
+                                ..Default::default()
+                            },
                         objects,
-                        rng,
-                        depth - 1,
-                    ) * material.diffuse_color
-                        + material.emissive_color;
+                    )
+                    .0 - get_object(
+                        ray.origin
+                            - Vector3 {
+                                x: MIN_DISTANCE,
+                                ..Default::default()
+                            },
+                        objects,
+                    )
+                    .0,
+                    y: get_object(
+                        ray.origin
+                            + Vector3 {
+                                y: MIN_DISTANCE,
+                                ..Default::default()
+                            },
+                        objects,
+                    )
+                    .0 - get_object(
+                        ray.origin
+                            - Vector3 {
+                                y: MIN_DISTANCE,
+                                ..Default::default()
+                            },
+                        objects,
+                    )
+                    .0,
+                    z: get_object(
+                        ray.origin
+                            + Vector3 {
+                                z: MIN_DISTANCE,
+                                ..Default::default()
+                            },
+                        objects,
+                    )
+                    .0 - get_object(
+                        ray.origin
+                            - Vector3 {
+                                z: MIN_DISTANCE,
+                                ..Default::default()
+                            },
+                        objects,
+                    )
+                    .0,
                 }
-            }
-            _ => {
-                return Vector3::one().lerp(
-                    Vector3 {
-                        x: 0.4,
-                        y: 0.6,
-                        z: 0.8,
+                .normalized();
+                return march_ray(
+                    Ray {
+                        origin: ray.origin + normal * MIN_DISTANCE.into() * 2.0.into(),
+                        direction: rand_in_hemisphere(normal, rng)
+                            .lerp(normal, material.smoothness)
+                            .normalized(),
                     },
-                    ray.direction.y * 0.5 + 0.5,
-                );
+                    objects,
+                    rng,
+                    depth - 1,
+                ) * material.diffuse_color
+                    + material.emissive_color;
             }
+        } else {
+            return Vector3::one().lerp(
+                Vector3 {
+                    x: 0.4,
+                    y: 0.6,
+                    z: 0.8,
+                },
+                ray.direction.y * 0.5 + 0.5,
+            );
         }
     }
 }

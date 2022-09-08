@@ -1,4 +1,6 @@
+mod and;
 mod camera;
+mod cutout;
 mod hit;
 mod material;
 mod ray;
@@ -7,7 +9,9 @@ mod sphere;
 mod vector2;
 mod vector3;
 
+pub use and::*;
 pub use camera::*;
+pub use cutout::*;
 pub use hit::*;
 pub use material::*;
 pub use ray::*;

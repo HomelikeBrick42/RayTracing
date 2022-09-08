@@ -15,22 +15,41 @@ fn main() {
     const THREAD_COUNT: usize = 8;
 
     let objects: Arc<[Box<dyn SDF<f64, f64> + Send + Sync>]> = Arc::new([
-        Box::new(Sphere {
-            position: Vector3 {
-                x: 0.0,
-                y: 0.9,
-                z: 0.0,
-            },
-            radius: 1.0,
-            material: Material {
-                diffuse_color: Vector3 {
-                    x: 0.2,
-                    y: 0.3,
-                    z: 0.8,
+        Box::new(Cutout {
+            object: Box::new(Sphere {
+                position: Vector3 {
+                    x: 0.0,
+                    y: 0.9,
+                    z: 0.0,
                 },
-                emissive_color: Vector3::zero(),
-                smoothness: 0.0,
-            },
+                radius: 1.0,
+                material: Material {
+                    diffuse_color: Vector3 {
+                        x: 0.2,
+                        y: 0.3,
+                        z: 0.8,
+                    },
+                    emissive_color: Vector3::zero(),
+                    smoothness: 0.0,
+                },
+            }),
+            cutout: Box::new(Sphere {
+                position: Vector3 {
+                    x: 0.4,
+                    y: 1.0,
+                    z: -0.5,
+                },
+                radius: 0.7,
+                material: Material {
+                    diffuse_color: Vector3 {
+                        x: 0.2,
+                        y: 0.3,
+                        z: 0.8,
+                    },
+                    emissive_color: Vector3::zero(),
+                    smoothness: 0.0,
+                },
+            }),
         }),
         Box::new(Sphere {
             position: Vector3 {

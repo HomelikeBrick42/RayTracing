@@ -10,7 +10,7 @@ use threadpool::ThreadPool;
 fn main() {
     const WIDTH: usize = 1280;
     const HEIGHT: usize = 720;
-    const SAMPLES: usize = 512;
+    const SAMPLES: usize = 2048;
     const MAX_BOUNCES: usize = 128;
     const THREAD_COUNT: usize = 8;
 
